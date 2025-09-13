@@ -3,5 +3,5 @@
 @tailwind utilities;
 
 * {
-    @apply bg-base-200
+    @apply bg-white
 }
