@@ -1,197 +1,110 @@
-// //@ts-nocheck
-// "use client";
-// import { FC } from "react";
-// import SpeechRecognition, {
-//   useSpeechRecognition,
-// } from "react-speech-recognition";
-
-// interface TextProps {}
-
-// const Text: FC<TextProps> = ({}) => {
-//   const {
-//     transcript,
-//     listening,
-//     resetTranscript,
-//     browserSupportsSpeechRecognition,
-//   } = useSpeechRecognition();
-
-//   if (!browserSupportsSpeechRecognition) {
-//     return <span>Browser does not support speech recognition.</span>;
-//   }
-
-//   return (
-//     <div>
-//       <h1 className="lg:text-5xl font-bold underline decoration-wavy text-2xl">
-//         Speech to text
-//       </h1>
-//       <p className=" mt-6 pb-32 mb-4 rounded-md bg-base-100 lg:w-96 lg:h-48 w-64 h-64">
-//         <span className="ml-2 font-bold text-xl bg-base-100">generated text:</span>
-//         {transcript}
-//       </p>
-//         <p className="mb-2 text-xl font-bold">Microphone: {listening ? 'Listing to your voice..' : 'off'}</p>
-//       <div className="flex gap-3">
-//         <button className="btn btn-primary btn-sm" onClick={SpeechRecognition.startListening}>Start</button>
-//         <button className="btn btn-secondary btn-sm" onClick={SpeechRecognition.stopListening}>Stop</button>
-//         <button className="btn btn-accent btn-sm" onClick={resetTranscript}>Reset</button>
-//       </div>
-//     </div>
-//   );
-// };
-
-// export default Text;
-
+// @ts-nocheck
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import SpeechRecognition, { useSpeechRecognition } from 'react-speech-recognition';
-import './SaathiAssistant.css';
+import React, { useEffect, useRef } from "react";
+import SpeechRecognition, { useSpeechRecognition } from "react-speech-recognition";
 
-// Define TypeScript interfaces for the conversation entries
-interface ConversationEntry {
-  speaker: 'user' | 'saathi' | 'system';
-  text: string;
-}
-
-// Define the expected response structure from the backend
-interface ApiResponse {
-  reply?: string;
-  error?: string;
-}
-
-const SaathiAssistant: React.FC = () => {
-  const [conversation, setConversation] = useState<ConversationEntry[]>([]);
-  const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  
+export default function Text() {
   const {
     transcript,
     listening,
     resetTranscript,
-    browserSupportsSpeechRecognition
+    browserSupportsSpeechRecognition,
   } = useSpeechRecognition();
 
-  // Function to send query to backend and get AI response
-  const askSaathi = async (userQuery: string): Promise<void> => {
-    if (!userQuery.trim()) return;
+  const startedRef = useRef(false);
 
-    setIsProcessing(true);
-    try {
-      const response = await fetch('http://localhost:3001/ask-saathi', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ message: userQuery }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Server error! status: ${response.status}`);
-      }
-
-      const data: ApiResponse = await response.json();
-      
-      if (data.reply) {
-        // Add AI response to conversation
-        const newEntry: ConversationEntry = { speaker: 'saathi', text: data.reply };
-        setConversation(prev => [...prev, newEntry]);
-        
-        // Speak the response
-        speakText(data.reply);
-      } else if (data.error) {
-        throw new Error(data.error);
-      }
-    } catch (error) {
-      console.error('Error:', error);
-      const errorEntry: ConversationEntry = { 
-        speaker: 'system', 
-        text: error instanceof Error ? error.message : 'Sorry, network error. Please try again.' 
-      };
-      setConversation(prev => [...prev, errorEntry]);
-    } finally {
-      setIsProcessing(false);
-    }
+  // Start listening (avoid repeated calls)
+  const startListening = () => {
+    if (startedRef.current && listening) return;
+    startedRef.current = true;
+    SpeechRecognition.startListening({ continuous: true, language: "hi-IN" });
   };
 
-  // Function to handle speech synthesis
-  const speakText = (text: string): void => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel(); // Stop any current speech
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'hi-IN'; // Set language to Hindi
-      utterance.rate = 0.9; // Slightly slower pace
-      window.speechSynthesis.speak(utterance);
-    }
+  // Stop listening
+  const stopListening = () => {
+    startedRef.current = false;
+    SpeechRecognition.stopListening();
   };
 
-  // Effect to handle when speech recognition ends
+  // Toggle listening
+  const toggleListening = () => {
+    if (listening) stopListening();
+    else startListening();
+  };
+
+  // Press-any-key handling (ignore typing)
   useEffect(() => {
-    if (!listening && transcript) {
-      // Add user's spoken text to conversation
-      const userEntry: ConversationEntry = { speaker: 'user', text: transcript };
-      setConversation(prev => [...prev, userEntry]);
-      
-      // Send the transcribed text to the backend API
-      askSaathi(transcript);
-      
-      // Reset the transcript for the next interaction
-      resetTranscript();
-    }
-  }, [listening, transcript, resetTranscript]);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName ?? "";
+      const isEditable =
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        (e.target as HTMLElement)?.isContentEditable;
+      if (isEditable) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      toggleListening();
+    };
 
-  // Start/stop listening function
-  const toggleListening = (): void => {
-    if (listening) {
-      SpeechRecognition.stopListening();
-    } else {
-      resetTranscript();
-      SpeechRecognition.startListening({ 
-        //language: 'hi-IN', // Hindi language
-        language: 'en-US',
-        continuous: true 
-      });
-    }
-  };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+    // listening intentionally in deps so toggle reads latest state
+  }, [listening]);
 
   if (!browserSupportsSpeechRecognition) {
-    return <div className="error">Your browser doesn't support speech recognition.</div>;
+    return (
+      <div className="p-6 bg-white rounded-lg border">
+        <p className="text-gray-600">Browser does not support speech recognition. Use Chrome or Edge.</p>
+      </div>
+    );
   }
 
   return (
-    <div className="saathi-container">
-      <h1>Porter Saathi</h1>
-      
-      {/* Status Indicator */}
-      <div className={`status ${listening ? 'listening' : ''} ${isProcessing ? 'processing' : ''}`}>
-        {isProcessing ? 'Saathi is thinking...' : 
-         listening ? 'Listening... Speak now' : 'Press mic to talk'}
-      </div>
-
-      {/* Microphone Button - Main Interface */}
-      <button 
-        className={`mic-btn ${listening ? 'active' : ''}`}
-        onClick={toggleListening}
-        disabled={isProcessing}
-        aria-label={listening ? 'Stop listening' : 'Start listening'}
-      >
-        <span className="mic-icon">🎤</span>
-      </button>
-
-      {/* Live Transcript Display */}
-      {transcript && (
-        <div className="transcript">
-          <strong>You said:</strong> {transcript}
+    <div className="mt-6">
+      <div className="bg-white rounded-xl border p-6 shadow-sm">
+        <div className="mb-4">
+          <h3 className="text-lg font-semibold">Voice Assistant</h3>
+          <p className="text-sm text-gray-500">Speak in Hindi/Hinglish — press any key or tap Start</p>
         </div>
-      )}
 
-      {/* Conversation History */}
-      <div className="conversation">
-        {conversation.map((entry, index) => (
-          <div key={index} className={`message ${entry.speaker}`}>
-            <strong>{entry.speaker.toUpperCase()}:</strong> {entry.text}
+        <div className="border rounded-lg p-4 bg-gray-50 min-h-[140px]">
+          <div className="text-sm font-medium mb-2">Transcript</div>
+          <div className="text-gray-800 whitespace-pre-wrap">
+            {transcript ? transcript : <span className="text-gray-400">No speech yet</span>}
           </div>
-        ))}
+        </div>
+
+        <div className="mt-5 grid grid-cols-3 gap-3 items-center">
+          <button
+            onClick={toggleListening}
+            className={`col-span-2 rounded-lg py-3 text-lg font-semibold transition-shadow ${
+              listening ? "bg-red-500 text-white" : "bg-blue-600 text-white"
+            }`}
+          >
+            {listening ? "Listening — press any key to stop" : "Start"}
+            <span className="ml-3">▶</span>
+          </button>
+
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={stopListening}
+              className="rounded-md border py-2 bg-white text-gray-700"
+            >
+              Stop
+            </button>
+            <button
+              onClick={() => resetTranscript()}
+              className="rounded-md border py-2 bg-white text-gray-700"
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 text-sm text-gray-500">
+          Microphone: {listening ? "Listening to your voice..." : "off"}
+        </div>
       </div>
     </div>
   );
-};
-
-export default SaathiAssistant;
+}
